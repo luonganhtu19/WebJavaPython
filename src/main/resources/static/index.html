@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Sign Recognition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+<div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-4xl">
+    <h1 class="text-2xl font-bold mb-4">Traffic Sign Recognition</h1>
+
+    <!-- Training Section -->
+    <div class="mb-8">
+        <button id="trainBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mb-4">Start Training</button>
+        <div class="mb-4">
+            <p class="text-gray-700">Progress: <span id="progressText">0%</span></p>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+        </div>
+        <canvas id="trainingChart" height="100"></canvas>
+    </div>
+
+    <!-- Prediction Section -->
+    <div class="mb-8">
+        <h2 class="text-xl font-semibold mb-2">Test Traffic Sign</h2>
+        <input type="file" id="fileInput" accept="image/*" class="mb-4">
+        <button id="predictBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Predict</button>
+        <div id="predictionResult" class="mt-4">
+            <p class="text-gray-700">Prediction: Waiting...</p>
+        </div>
+    </div>
+
+    <!-- Test Set Predictions -->
+    <div id="predictions" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <p class="text-gray-700 col-span-full">Test Set Predictions: Waiting...</p>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('trainingChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                { label: 'Loss', data: [], borderColor: 'red', fill: false },
+                { label: 'Accuracy', data: [], borderColor: 'blue', fill: false }
+            ]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+
+    document.getElementById('trainBtn').addEventListener('click', async () => {
+        document.getElementById('progressText').textContent = '0%';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('predictions').innerHTML = '<p class="text-gray-700 col-span-full">Test Set Predictions: Training...</p>';
+        try {
+            const response = await fetch('/train', { method: 'POST' });
+            const result = await response.text();
+            document.getElementById('predictions').innerHTML = `<p class="text-gray-700 col-span-full">Status: ${result}</p>`;
+        } catch (error) {
+            document.getElementById('predictions').innerHTML = `<p class="text-gray-700 col-span-full">Status: Error - ${error.message}</p>`;
+        }
+    });
+
+    document.getElementById('predictBtn').addEventListener('click', async () => {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput.files[0]) {
+            document.getElementById('predictionResult').innerHTML = '<p class="text-red-700">Please select an image.</p>';
+            return;
+        }
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        document.getElementById('predictionResult').innerHTML = '<p class="text-gray-700">Prediction: Processing...</p>';
+        try {
+            const response = await fetch('/predict', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if (data.error) {
+                document.getElementById('predictionResult').innerHTML = `<p class="text-red-700">Error: ${data.error}</p>`;
+            } else {
+                document.getElementById('predictionResult').innerHTML = `
+                        <img src="data:image/png;base64,${data.image}" class="w-32 h-32 object-cover mb-2">
+                        <p><strong>Sign:</strong> ${data.meaning}</p>
+                        <p><strong>Confidence:</strong> ${(data.confidence * 100).toFixed(2)}%</p>
+                    `;
+            }
+        } catch (error) {
+            document.getElementById('predictionResult').innerHTML = `<p class="text-red-700">Error: ${error.message}</p>`;
+        }
+    });
+
+    setInterval(async () => {
+        try {
+            const response = await fetch('/status');
+            const data = await response.json();
+            if (data.error) {
+                console.log(data.error);
+                return;
+            }
+            chart.data.labels = data.map(log => `Epoch ${log.epoch}`);
+            chart.data.datasets[0].data = data.map(log => log.loss);
+            chart.data.datasets[1].data = data.map(log => log.accuracy);
+            chart.update();
+
+            const progress = (data.length / 10) * 100;
+            document.getElementById('progressText').textContent = `${progress.toFixed(0)}%`;
+            document.getElementById('progressBar').style.width = `${progress}%`;
+        } catch (error) {
+            console.log('Error fetching status:', error);
+        }
+    }, 5000);
+
+    setInterval(async () => {
+        try {
+            const response = await fetch('/predictions');
+            const data = await response.json();
+            if (data.error) {
+                console.log(data.error);
+                return;
+            }
+            const predictionsDiv = document.getElementById('predictions');
+            predictionsDiv.innerHTML = '<p class="text-gray-700 col-span-full">Test Set Predictions:</p>';
+            data.forEach(pred => {
+                const div = document.createElement('div');
+                div.innerHTML = `
+                        <img src="data:image/png;base64,${pred.image}" class="w-32 h-32 object-cover">
+                        <p class="text-sm">True: ${pred.true_label}, Pred: ${pred.pred_label}</p>
+                    `;
+                predictionsDiv.appendChild(div);
+            });
+        } catch (error) {
+            console.log('Error fetching predictions:', error);
+        }
+    }, 5000);
+</script>
+</body>
+</html>
